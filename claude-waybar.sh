@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
-# claude-waybar.sh — waybar module for Claude Code instance status
+# claude-waybar.sh — waybar module for Claude Code & OpenCode instance status
 
 CLAUDE_PROJECTS="$HOME/.claude/projects"
+OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"
 NOW=$(date +%s)
 TOTAL=0
 NEEDS_INPUT=0
 TOOLTIP=""
 
-# Count running claude processes
-PIDS=$(ps -eo pid,args --no-headers | grep -E '(^| )claude( |$)' | grep -v claude-ps | grep -v grep | awk '{print $1}')
+# Count running claude and opencode processes
+PIDS=$(ps -eo pid,args --no-headers | grep -E '(^| )(claude|opencode)( |$)' | grep -v claude-ps | grep -v grep | awk '{print $1}')
 for PID in $PIDS; do
     [ -d "/proc/$PID" ] && TOTAL=$((TOTAL + 1))
 done
@@ -18,7 +19,7 @@ if [ "$TOTAL" -eq 0 ]; then
     exit 0
 fi
 
-# Check session states
+# Check Claude session states
 for PROJ_DIR in "$CLAUDE_PROJECTS"/*/; do
     [ -d "$PROJ_DIR" ] || continue
     for JSONL in "$PROJ_DIR"*.jsonl; do
@@ -34,6 +35,23 @@ for PROJ_DIR in "$CLAUDE_PROJECTS"/*/; do
         fi
     done
 done
+
+# Check OpenCode session states (from SQLite)
+if [ -f "$OPENCODE_DB" ]; then
+    NOW_MS=$((NOW * 1000))
+    CUTOFF=$((NOW_MS - 300000))
+    OC_PENDING=$(sqlite3 "$OPENCODE_DB" "
+        SELECT COUNT(*) FROM part p
+        JOIN session s ON p.session_id = s.id
+        WHERE s.time_updated > $CUTOFF
+          AND json_extract(p.data, '\$.type') = 'tool'
+          AND json_extract(p.data, '\$.state.status') = 'pending'
+          AND p.time_created = (
+              SELECT MAX(p2.time_created) FROM part p2 WHERE p2.session_id = s.id
+          )
+    " 2>/dev/null || echo 0)
+    NEEDS_INPUT=$((NEEDS_INPUT + OC_PENDING))
+fi
 
 if [ "$NEEDS_INPUT" -gt 0 ]; then
     TEXT="󰚩 $NEEDS_INPUT!"
