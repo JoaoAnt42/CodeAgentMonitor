@@ -1,5 +1,9 @@
 {
   "refresh_interval": 5,
+  "tools": {
+    "claude": { "enabled": true },
+    "opencode": { "enabled": true }
+  },
   "hyprland": {
     "enabled": true,
     "workspace_labels": {
