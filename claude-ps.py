@@ -666,6 +666,7 @@ def build_lines(groups, max_x=80, max_y=24, group_mode="workspace"):
             mem = format_mem(inst["rss"])
             elapsed = format_elapsed(inst["elapsed"])
             source = inst["source"]
+            tool = inst.get("tool", "claude")
             is_sub = inst["is_subagent"]
             active = cpu > 1.0
             ws = inst["workspace"]
@@ -691,14 +692,14 @@ def build_lines(groups, max_x=80, max_y=24, group_mode="workspace"):
 
             # Build columns with consistent spacing
             if is_sub:
-                text = f"      └ {pid}  {source:<9s} {dir_short:<16s} {cpu:>5.1f}%  {mem:>5s}  {elapsed:>7s}  {ctx_str}"
+                text = f"      └ {pid}  {tool:<9s} {source:<9s} {dir_short:<16s} {cpu:>5.1f}%  {mem:>5s}  {elapsed:>7s}  {ctx_str}"
             else:
                 if state_label:
-                    text = f"    {marker} {pid}  {source:<9s} {dir_short:<16s} {state_label:<12s} {cpu:>5.1f}%  {mem:>5s}  {elapsed:>7s}  {ctx_str}"
+                    text = f"    {marker} {pid}  {tool:<9s} {source:<9s} {dir_short:<16s} {state_label:<12s} {cpu:>5.1f}%  {mem:>5s}  {elapsed:>7s}  {ctx_str}"
                 else:
-                    text = f"    {marker} {pid}  {source:<9s} {dir_short:<16s} {cpu:>5.1f}%  {mem:>5s}  {elapsed:>7s}  {ctx_str}"
+                    text = f"    {marker} {pid}  {tool:<9s} {source:<9s} {dir_short:<16s} {cpu:>5.1f}%  {mem:>5s}  {elapsed:>7s}  {ctx_str}"
 
-            attrs = [(state, is_sub, source, ctx_pct)]
+            attrs = [(state, is_sub, source, ctx_pct, tool)]
             sel_idx = len(selectable_indices)
             selectable_indices.append(len(lines))
             instance_map[sel_idx] = inst
@@ -775,7 +776,7 @@ def main(stdscr):
         stdscr.erase()
 
         # Header
-        title = " Claude Code Monitor "
+        title = " Code Agent Monitor "
         count_str = f" {total} instance{'s' if total != 1 else ''} "
         pad = max(0, max_x - len(title) - len(count_str))
         header = title + "─" * pad + count_str
@@ -832,7 +833,7 @@ def main(stdscr):
 
                 elif kind == "inst":
                     if attrs:
-                        state, is_sub, source, ctx_pct = attrs[0]
+                        state, is_sub, source, ctx_pct, tool = attrs[0]
                         if is_sub:
                             base_style = COLOR_DIM
                         elif state == "permission":
@@ -877,7 +878,7 @@ def main(stdscr):
                 pass
 
         if not lines:
-            msg = "No Claude Code instances running."
+            msg = "No coding agent instances running."
             try:
                 stdscr.addnstr(content_start + 1, 2, msg, max_x - 2, COLOR_IDLE)
             except curses.error:
