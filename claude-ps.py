@@ -333,6 +333,143 @@ CLAUDE_ADAPTER = {
     "detect_state": detect_session_state,
 }
 
+
+
+def _opencode_get_sessions(cwd):
+    """Get active OpenCode sessions for a directory from SQLite."""
+    if not os.path.isfile(OPENCODE_DB):
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        conn.execute("PRAGMA journal_mode=WAL")
+        now_ms = int(time.time() * 1000)
+        cutoff = now_ms - 300_000  # 5 minutes
+        rows = conn.execute(
+            """SELECT s.id, s.title, s.time_updated
+               FROM session s
+               WHERE s.directory = ? AND s.time_updated > ?
+               ORDER BY s.time_updated DESC""",
+            (cwd, cutoff)
+        ).fetchall()
+        sessions = []
+        for sid, title, mtime in rows:
+            task = ""
+            part_row = conn.execute(
+                """SELECT json_extract(p.data, '$.text')
+                   FROM part p
+                   JOIN message m ON p.message_id = m.id
+                   WHERE p.session_id = ?
+                     AND json_extract(m.data, '$.role') = 'user'
+                     AND json_extract(p.data, '$.type') = 'text'
+                   ORDER BY p.time_created ASC LIMIT 1""",
+                (sid,)
+            ).fetchone()
+            if part_row and part_row[0]:
+                task = part_row[0]
+            ctx_pct = _opencode_context_usage(conn, sid)
+            sessions.append((sid, task, mtime / 1000.0, ctx_pct))
+        conn.close()
+        return sessions
+    except (sqlite3.Error, OSError):
+        return []
+
+
+def _opencode_context_usage(conn, session_id):
+    """Get context window usage % for an OpenCode session."""
+    try:
+        row = conn.execute(
+            """SELECT data FROM message
+               WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant'
+               ORDER BY time_created DESC LIMIT 1""",
+            (session_id,)
+        ).fetchone()
+        if not row:
+            return None
+        data = json.loads(row[0])
+        tokens = data.get("tokens", {})
+        total = (tokens.get("input", 0)
+                 + tokens.get("output", 0)
+                 + tokens.get("cache", {}).get("read", 0)
+                 + tokens.get("cache", {}).get("write", 0))
+        if total <= 0:
+            return None
+        return min(100, int(total / 200000 * 100))
+    except (sqlite3.Error, json.JSONDecodeError, KeyError):
+        return None
+
+
+def _opencode_detect_state(cwd):
+    """Detect state of OpenCode sessions from SQLite."""
+    if not os.path.isfile(OPENCODE_DB):
+        return []
+    try:
+        conn = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        conn.execute("PRAGMA journal_mode=WAL")
+        now_ms = int(time.time() * 1000)
+        cutoff = now_ms - 300_000
+        rows = conn.execute(
+            """SELECT s.id, s.time_updated
+               FROM session s
+               WHERE s.directory = ? AND s.time_updated > ?
+               ORDER BY s.time_updated DESC""",
+            (cwd, cutoff)
+        ).fetchall()
+        results = []
+        now = time.time()
+        for sid, mtime_ms in rows:
+            mtime = mtime_ms / 1000.0
+            staleness = now - mtime
+            part_row = conn.execute(
+                """SELECT json_extract(data, '$.type'),
+                          json_extract(data, '$.state.status')
+                   FROM part
+                   WHERE session_id = ?
+                   ORDER BY time_created DESC LIMIT 1""",
+                (sid,)
+            ).fetchone()
+            if part_row:
+                ptype, pstatus = part_row
+                if ptype == "tool" and pstatus == "running":
+                    state = "working"
+                elif ptype == "tool" and pstatus == "pending":
+                    state = "permission"
+                elif ptype == "tool" and pstatus == "completed" and staleness < 3:
+                    state = "working"
+                elif staleness < 3:
+                    state = "working"
+                else:
+                    state = "input"
+            else:
+                state = "input"
+            results.append((sid, state, mtime))
+        conn.close()
+        return results
+    except (sqlite3.Error, OSError):
+        return []
+
+
+def _opencode_is_subagent(args, pid, ppid, all_pids):
+    """Check if an OpenCode process is a sub-agent (launched with -s flag)."""
+    return "-s " in args or "-s=" in args
+
+
+OPENCODE_ADAPTER = {
+    "name": "opencode",
+    "process_name": "opencode",
+    "match_process": lambda args, cmd: cmd == "opencode" or cmd.endswith("/opencode"),
+    "detect_source": lambda args: "terminal",
+    "is_subagent": _opencode_is_subagent,
+    "get_sessions": _opencode_get_sessions,
+    "detect_state": _opencode_detect_state,
+}
+
+
+TOOL_ADAPTERS = []
+if TOOLS_CONFIG.get("claude", {}).get("enabled", True):
+    TOOL_ADAPTERS.append(CLAUDE_ADAPTER)
+if TOOLS_CONFIG.get("opencode", {}).get("enabled", True):
+    TOOL_ADAPTERS.append(OPENCODE_ADAPTER)
+
 def focus_window(address):
     """Focus a Hyprland window by address."""
     if not address:
