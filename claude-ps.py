@@ -5,10 +5,12 @@ import curses
 import json
 import os
 import subprocess
+import sqlite3
 import time
 
 HOME = os.path.expanduser("~")
 CLAUDE_PROJECTS = os.path.join(HOME, ".claude", "projects")
+OPENCODE_DB = os.path.join(HOME, ".local", "share", "opencode", "opencode.db")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Load config
@@ -23,6 +25,7 @@ REFRESH_INTERVAL = CONFIG.get("refresh_interval", 5)
 HYPRLAND_ENABLED = CONFIG.get("hyprland", {}).get("enabled", True)
 WORKSPACE_LABELS = CONFIG.get("hyprland", {}).get("workspace_labels", {})
 GROUP_BY = CONFIG.get("group_by", "workspace" if HYPRLAND_ENABLED else "directory")
+TOOLS_CONFIG = CONFIG.get("tools", {"claude": {"enabled": True}, "opencode": {"enabled": True}})
 
 
 def shorten_path(path):
@@ -310,6 +313,25 @@ def detect_session_state(cwd):
     results.sort(key=lambda x: x[2], reverse=True)
     return results
 
+def _claude_is_subagent(ppid):
+    """Check if a Claude process is a sub-agent by inspecting parent cmdline."""
+    try:
+        with open(f"/proc/{ppid}/cmdline", "rb") as f:
+            parent_cmd = f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
+        return "claude" in parent_cmd and "claude-ps" not in parent_cmd
+    except OSError:
+        return False
+
+
+CLAUDE_ADAPTER = {
+    "name": "claude",
+    "process_name": "claude",
+    "match_process": lambda args, cmd: cmd == "claude" or cmd.endswith("/claude"),
+    "detect_source": lambda args: "vscode" if "stream-json" in args else "terminal",
+    "is_subagent": lambda args, pid, ppid, all_pids: _claude_is_subagent(ppid),
+    "get_sessions": get_active_sessions,
+    "detect_state": detect_session_state,
+}
 
 def focus_window(address):
     """Focus a Hyprland window by address."""
