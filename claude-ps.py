@@ -495,82 +495,94 @@ def collect_instances():
     else:
         windows_by_pid, all_windows = {}, []
 
-    instances = []
-    for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) < 6:
-            continue
-        args = " ".join(parts[5:])
-        if "claude-ps" in args or "grep" in args:
-            continue
-        if not (parts[5] == "claude" or parts[5].endswith("/claude")):
-            continue
+    all_instances = []
 
-        pid = int(parts[0])
-        ppid = int(parts[1])
-        cpu = float(parts[2])
-        rss = int(parts[3])
-        elapsed = parts[4]
+    for adapter in TOOL_ADAPTERS:
+        adapter_pids = set()
+        instances = []
 
-        try:
-            cwd = os.readlink(f"/proc/{pid}/cwd")
-        except OSError:
-            cwd = "unknown"
+        # First pass: collect matching PIDs
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 6:
+                continue
+            cmd = parts[5]
+            args = " ".join(parts[5:])
+            if "claude-ps" in args or "grep" in args:
+                continue
+            if not adapter["match_process"](args, cmd):
+                continue
+            adapter_pids.add(int(parts[0]))
 
-        source = "vscode" if "stream-json" in args else "terminal"
+        # Second pass: build instances
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) < 6:
+                continue
+            cmd = parts[5]
+            args = " ".join(parts[5:])
+            if "claude-ps" in args or "grep" in args:
+                continue
+            if not adapter["match_process"](args, cmd):
+                continue
 
-        is_subagent = False
-        try:
-            with open(f"/proc/{ppid}/cmdline", "rb") as f:
-                parent_cmd = f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
-            if "claude" in parent_cmd and "claude-ps" not in parent_cmd:
-                is_subagent = True
-        except OSError:
-            pass
+            pid = int(parts[0])
+            ppid = int(parts[1])
+            cpu = float(parts[2])
+            rss = int(parts[3])
+            elapsed = parts[4]
 
-        inst = {
-            "pid": pid,
-            "ppid": ppid,
-            "cpu": cpu,
-            "rss": rss,
-            "elapsed": elapsed,
-            "cwd": cwd,
-            "source": source,
-            "is_subagent": is_subagent,
-            "workspace": None,
-            "window_address": None,
-        }
+            try:
+                cwd = os.readlink(f"/proc/{pid}/cwd")
+            except OSError:
+                cwd = "unknown"
 
-        # Match to Hyprland window
-        ws, addr = match_window(inst, windows_by_pid, all_windows)
-        inst["workspace"] = ws
-        inst["window_address"] = addr
+            source = adapter["detect_source"](args)
+            is_subagent = adapter["is_subagent"](args, pid, ppid, adapter_pids)
 
-        instances.append(inst)
+            inst = {
+                "pid": pid,
+                "ppid": ppid,
+                "cpu": cpu,
+                "rss": rss,
+                "elapsed": elapsed,
+                "cwd": cwd,
+                "source": source,
+                "is_subagent": is_subagent,
+                "tool": adapter["name"],
+                "workspace": None,
+                "window_address": None,
+            }
 
-    # Assign tasks and states: group instances by cwd, match to active sessions by recency
-    by_cwd = {}
-    for inst in instances:
-        by_cwd.setdefault(inst["cwd"], []).append(inst)
+            ws, addr = match_window(inst, windows_by_pid, all_windows)
+            inst["workspace"] = ws
+            inst["window_address"] = addr
+            instances.append(inst)
 
-    for cwd, cwd_instances in by_cwd.items():
-        sessions = get_active_sessions(cwd)
-        states = detect_session_state(cwd)
-        # Sort instances by PID (oldest first) to match session order (newest first)
-        sorted_insts = sorted(cwd_instances, key=lambda i: i["pid"])
-        for i, inst in enumerate(sorted_insts):
-            if i < len(sessions):
-                inst["task"] = sessions[i][1]
-                inst["ctx_pct"] = sessions[i][3]
-            else:
-                inst["task"] = ""
-                inst["ctx_pct"] = None
-            if i < len(states):
-                inst["state"] = states[i][1]
-            else:
-                inst["state"] = "unknown"
+        # Assign tasks and states per cwd
+        by_cwd = {}
+        for inst in instances:
+            by_cwd.setdefault(inst["cwd"], []).append(inst)
 
-    return instances
+        for cwd, cwd_instances in by_cwd.items():
+            sessions = adapter["get_sessions"](cwd)
+            states = adapter["detect_state"](cwd)
+            sorted_insts = sorted(cwd_instances, key=lambda i: i["pid"])
+            for i, inst in enumerate(sorted_insts):
+                if i < len(sessions):
+                    inst["task"] = sessions[i][1]
+                    inst["ctx_pct"] = sessions[i][3]
+                else:
+                    inst["task"] = ""
+                    inst["ctx_pct"] = None
+                if i < len(states):
+                    inst["state"] = states[i][1]
+                else:
+                    inst["state"] = "unknown"
+
+        all_instances.extend(instances)
+
+    return all_instances
 
 
 def group_by_workspace(instances):
