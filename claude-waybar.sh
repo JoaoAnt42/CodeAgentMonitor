@@ -9,7 +9,7 @@ NEEDS_INPUT=0
 TOOLTIP=""
 
 # Count running claude and opencode processes
-PIDS=$(ps -eo pid,args --no-headers | grep -E '(^| )(claude|opencode)( |$)' | grep -v claude-ps | grep -v grep | awk '{print $1}')
+PIDS=$(ps -eo pid,args --no-headers | grep -E '(^| )(claude|opencode)( |$)' | grep -v agent-ps | grep -v grep | awk '{print $1}')
 for PID in $PIDS; do
     [ -d "/proc/$PID" ] && TOTAL=$((TOTAL + 1))
 done

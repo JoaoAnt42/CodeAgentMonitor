@@ -33,11 +33,11 @@ cd ~/Documents/CodeAgentMonitor
 
 # Symlink the TUI to your PATH
 mkdir -p ~/.local/bin
-ln -sf "$(pwd)/claude-ps.py" ~/.local/bin/agent-ps
+ln -sf "$(pwd)/agent-ps.py" ~/.local/bin/agent-ps
 export PATH="$HOME/.local/bin:$PATH"
 
 # Or add an alias
-echo 'alias agent-ps="~/Documents/CodeAgentMonitor/claude-ps.py"' >> ~/.zshrc
+echo 'alias agent-ps="~/Documents/CodeAgentMonitor/agent-ps.py"' >> ~/.zshrc
 ```
 
 ### Waybar integration (Hyprland only)
@@ -176,6 +176,6 @@ The monitor uses different strategies per agent:
 
 | File | Purpose |
 |------|---------|
-| `claude-ps.py` | Main TUI application |
+| `agent-ps.py` | Main TUI application |
 | `claude-waybar.sh` | Waybar status indicator script |
 | `config.json` | User configuration |

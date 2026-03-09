@@ -328,7 +328,7 @@ def _claude_is_subagent(ppid):
             parent_cmd = (
                 f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
             )
-        return "claude" in parent_cmd and "claude-ps" not in parent_cmd
+        return "claude" in parent_cmd and "agent-ps" not in parent_cmd
     except OSError:
         return False
 
@@ -523,7 +523,7 @@ def collect_instances():
                 continue
             cmd = parts[5]
             args = " ".join(parts[5:])
-            if "claude-ps" in args or "grep" in args:
+            if "agent-ps" in args or "grep" in args:
                 continue
             if not adapter["match_process"](args, cmd):
                 continue
@@ -536,7 +536,7 @@ def collect_instances():
                 continue
             cmd = parts[5]
             args = " ".join(parts[5:])
-            if "claude-ps" in args or "grep" in args:
+            if "agent-ps" in args or "grep" in args:
                 continue
             if not adapter["match_process"](args, cmd):
                 continue
