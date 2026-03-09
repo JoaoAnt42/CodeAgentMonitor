@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-waybar.sh — waybar module for Claude Code & OpenCode instance status
+# claude-waybar.sh — waybar module for CLI code agent instance status (Claude Code, OpenCode, etc.)
 
 CLAUDE_PROJECTS="$HOME/.claude/projects"
 OPENCODE_DB="$HOME/.local/share/opencode/opencode.db"

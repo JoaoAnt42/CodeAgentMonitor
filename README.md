@@ -1,10 +1,11 @@
-# Claude Code Monitor
+# Code Agent Monitor
 
-A TUI dashboard for monitoring all running Claude Code instances on your machine.
+A TUI dashboard for monitoring all running CLI code agent instances (Claude Code, OpenCode, etc.) on your machine.
 
 ## Features
 
 - **Live monitoring** — auto-refreshes every 5 seconds
+- **Multi-agent support** — monitors Claude Code and OpenCode instances simultaneously
 - **State detection** — detects when an instance needs your input (permission prompts)
 - **Context usage** — shows how full each instance's context window is
 - **Task preview** — shows the first user message for each session
@@ -16,7 +17,7 @@ A TUI dashboard for monitoring all running Claude Code instances on your machine
 
 - Python 3.6+
 - Linux (`/proc` filesystem for process introspection)
-- Claude Code CLI installed
+- At least one CLI code agent installed (Claude Code, OpenCode, etc.)
 
 ### Optional
 
@@ -27,34 +28,34 @@ A TUI dashboard for monitoring all running Claude Code instances on your machine
 
 ```bash
 # Clone the repo
-git clone <repo-url> ~/Documents/ClaudeCodeMonitor
-cd ~/Documents/ClaudeCodeMonitor
+git clone <repo-url> ~/Documents/CodeAgentMonitor
+cd ~/Documents/CodeAgentMonitor
 
 # Symlink the TUI to your PATH
-mkdir -p ~/.claude/bin
-ln -sf "$(pwd)/claude-ps.py" ~/.claude/bin/claude-ps
-export PATH="$HOME/.claude/bin:$PATH"
+mkdir -p ~/.local/bin
+ln -sf "$(pwd)/claude-ps.py" ~/.local/bin/agent-ps
+export PATH="$HOME/.local/bin:$PATH"
 
 # Or add an alias
-echo 'alias claude-ps="~/Documents/ClaudeCodeMonitor/claude-ps.py"' >> ~/.zshrc
+echo 'alias agent-ps="~/Documents/CodeAgentMonitor/claude-ps.py"' >> ~/.zshrc
 ```
 
 ### Waybar integration (Hyprland only)
 
 ```bash
 # Symlink the waybar script
-ln -sf "$(pwd)/claude-waybar.sh" ~/.config/waybar/modules/claude.sh
+ln -sf "$(pwd)/claude-waybar.sh" ~/.config/waybar/modules/agent-status.sh
 ```
 
 Add to your waybar config (`~/.config/waybar/config`):
 
 ```json
-"custom/claude": {
+"custom/agent": {
     "format": "{}",
-    "exec": "~/.config/waybar/modules/claude.sh",
+    "exec": "~/.config/waybar/modules/agent-status.sh",
     "return-type": "json",
     "interval": 5,
-    "on-click": "~/.claude/bin/claude-ps",
+    "on-click": "~/.local/bin/agent-ps",
     "tooltip": true
 }
 ```
@@ -62,16 +63,16 @@ Add to your waybar config (`~/.config/waybar/config`):
 Add to your waybar CSS (`~/.config/waybar/style.css`):
 
 ```css
-#custom-claude.ok {
+#custom-agent.ok {
     color: #a6da95;
 }
 
-#custom-claude.attention {
+#custom-agent.attention {
     color: #ed8796;
     animation: pulse 1s ease-in-out infinite;
 }
 
-#custom-claude.none {
+#custom-agent.none {
     padding: 0;
     margin: 0;
 }
@@ -97,7 +98,11 @@ Edit `config.json` in the project directory:
       "3": "Term"
     }
   },
-  "group_by": "workspace"
+  "group_by": "workspace",
+  "tools": {
+    "claude": { "enabled": true },
+    "opencode": { "enabled": true }
+  }
 }
 ```
 
@@ -107,6 +112,8 @@ Edit `config.json` in the project directory:
 | `hyprland.enabled` | `true` | Set to `false` on non-Hyprland systems (Windows, macOS, other WMs) |
 | `hyprland.workspace_labels` | `{}` | Human-readable names for workspace numbers |
 | `group_by` | `"workspace"` | `"workspace"` or `"directory"` — how to group instances. Falls back to `"directory"` when Hyprland is disabled |
+| `tools.claude.enabled` | `true` | Enable/disable monitoring Claude Code instances |
+| `tools.opencode.enabled` | `true` | Enable/disable monitoring OpenCode instances |
 
 ### Windows / macOS / non-Hyprland users
 
@@ -153,11 +160,17 @@ This disables workspace detection, window focus, and waybar features. The TUI st
 
 ## How State Detection Works
 
-The monitor reads the tail of each Claude session's `.jsonl` file to determine state:
+The monitor uses different strategies per agent:
 
-- If the last message is `assistant` with `tool_use` and the file hasn't been modified for >5 seconds, the instance is likely **waiting for permission**
-- If the last message is `assistant` with text or a `turn_duration` system event, the instance is **idle**
-- Otherwise, it's **working**
+**Claude Code:** Reads the tail of each session's `.jsonl` file to determine state:
+- If the last message is `assistant` with `tool_use` and the file hasn't been modified for >5s → **waiting for permission**
+- If the last message is `assistant` with text or a `turn_duration` system event → **idle**
+- Otherwise → **working**
+
+**OpenCode:** Queries the SQLite database for session state:
+- If the last part has status `running` → **working**
+- If the last part has status `pending` → **waiting for permission**
+- Otherwise → **idle**
 
 ## Files
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""claude-ps — TUI monitor for running Claude Code instances."""
+"""agent-ps — TUI monitor for running CLI code agent instances (Claude Code, OpenCode, etc.)."""
 
 import curses
 import json
@@ -25,12 +25,14 @@ REFRESH_INTERVAL = CONFIG.get("refresh_interval", 5)
 HYPRLAND_ENABLED = CONFIG.get("hyprland", {}).get("enabled", True)
 WORKSPACE_LABELS = CONFIG.get("hyprland", {}).get("workspace_labels", {})
 GROUP_BY = CONFIG.get("group_by", "workspace" if HYPRLAND_ENABLED else "directory")
-TOOLS_CONFIG = CONFIG.get("tools", {"claude": {"enabled": True}, "opencode": {"enabled": True}})
+TOOLS_CONFIG = CONFIG.get(
+    "tools", {"claude": {"enabled": True}, "opencode": {"enabled": True}}
+)
 
 
 def shorten_path(path):
     if path.startswith(HOME):
-        return "~" + path[len(HOME):]
+        return "~" + path[len(HOME) :]
     return path
 
 
@@ -72,8 +74,7 @@ def get_hyprland_windows():
     """Get all Hyprland windows as a dict keyed by PID and a list."""
     try:
         result = subprocess.run(
-            ["hyprctl", "clients", "-j"],
-            capture_output=True, text=True, timeout=3
+            ["hyprctl", "clients", "-j"], capture_output=True, text=True, timeout=3
         )
         clients = json.loads(result.stdout)
     except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError):
@@ -160,6 +161,7 @@ def get_active_sessions(cwd):
         return []
 
     import glob as g
+
     jsonls = g.glob(os.path.join(proj_dir, "*.jsonl"))
     if not jsonls:
         return []
@@ -222,9 +224,11 @@ def get_session_context_usage(jsonl_path):
                 msg = json.loads(line)
                 usage = msg.get("message", {}).get("usage")
                 if usage:
-                    total = (usage.get("input_tokens", 0)
-                             + usage.get("cache_creation_input_tokens", 0)
-                             + usage.get("cache_read_input_tokens", 0))
+                    total = (
+                        usage.get("input_tokens", 0)
+                        + usage.get("cache_creation_input_tokens", 0)
+                        + usage.get("cache_read_input_tokens", 0)
+                    )
                     # Claude context window is 200k tokens
                     pct = min(100, int(total / 200000 * 100))
                     return pct
@@ -249,6 +253,7 @@ def detect_session_state(cwd):
         return []
 
     import glob as g
+
     jsonls = g.glob(os.path.join(proj_dir, "*.jsonl"))
     if not jsonls:
         return []
@@ -284,7 +289,9 @@ def detect_session_state(cwd):
                         content = msg.get("message", {}).get("content", [])
                         if isinstance(content, list):
                             last_content_types = [
-                                c.get("type", "") for c in content if isinstance(c, dict)
+                                c.get("type", "")
+                                for c in content
+                                if isinstance(c, dict)
                             ]
                         break
                     t = msg.get("type", "")
@@ -313,11 +320,14 @@ def detect_session_state(cwd):
     results.sort(key=lambda x: x[2], reverse=True)
     return results
 
+
 def _claude_is_subagent(ppid):
     """Check if a Claude process is a sub-agent by inspecting parent cmdline."""
     try:
         with open(f"/proc/{ppid}/cmdline", "rb") as f:
-            parent_cmd = f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
+            parent_cmd = (
+                f.read().replace(b"\x00", b" ").decode("utf-8", errors="replace")
+            )
         return "claude" in parent_cmd and "claude-ps" not in parent_cmd
     except OSError:
         return False
@@ -334,7 +344,6 @@ CLAUDE_ADAPTER = {
 }
 
 
-
 def _opencode_get_sessions(cwd):
     """Get active OpenCode sessions for a directory from SQLite."""
     if not os.path.isfile(OPENCODE_DB):
@@ -349,7 +358,7 @@ def _opencode_get_sessions(cwd):
                FROM session s
                WHERE s.directory = ? AND s.time_updated > ?
                ORDER BY s.time_updated DESC""",
-            (cwd, cutoff)
+            (cwd, cutoff),
         ).fetchall()
         sessions = []
         for sid, title, mtime in rows:
@@ -362,7 +371,7 @@ def _opencode_get_sessions(cwd):
                      AND json_extract(m.data, '$.role') = 'user'
                      AND json_extract(p.data, '$.type') = 'text'
                    ORDER BY p.time_created ASC LIMIT 1""",
-                (sid,)
+                (sid,),
             ).fetchone()
             if part_row and part_row[0]:
                 task = part_row[0]
@@ -381,16 +390,18 @@ def _opencode_context_usage(conn, session_id):
             """SELECT data FROM message
                WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant'
                ORDER BY time_created DESC LIMIT 1""",
-            (session_id,)
+            (session_id,),
         ).fetchone()
         if not row:
             return None
         data = json.loads(row[0])
         tokens = data.get("tokens", {})
-        total = (tokens.get("input", 0)
-                 + tokens.get("output", 0)
-                 + tokens.get("cache", {}).get("read", 0)
-                 + tokens.get("cache", {}).get("write", 0))
+        total = (
+            tokens.get("input", 0)
+            + tokens.get("output", 0)
+            + tokens.get("cache", {}).get("read", 0)
+            + tokens.get("cache", {}).get("write", 0)
+        )
         if total <= 0:
             return None
         return min(100, int(total / 200000 * 100))
@@ -412,7 +423,7 @@ def _opencode_detect_state(cwd):
                FROM session s
                WHERE s.directory = ? AND s.time_updated > ?
                ORDER BY s.time_updated DESC""",
-            (cwd, cutoff)
+            (cwd, cutoff),
         ).fetchall()
         results = []
         now = time.time()
@@ -425,7 +436,7 @@ def _opencode_detect_state(cwd):
                    FROM part
                    WHERE session_id = ?
                    ORDER BY time_created DESC LIMIT 1""",
-                (sid,)
+                (sid,),
             ).fetchone()
             if part_row:
                 ptype, pstatus = part_row
@@ -470,13 +481,15 @@ if TOOLS_CONFIG.get("claude", {}).get("enabled", True):
 if TOOLS_CONFIG.get("opencode", {}).get("enabled", True):
     TOOL_ADAPTERS.append(OPENCODE_ADAPTER)
 
+
 def focus_window(address):
     """Focus a Hyprland window by address."""
     if not address:
         return
     subprocess.run(
         ["hyprctl", "dispatch", "focuswindow", f"address:{address}"],
-        capture_output=True, timeout=3
+        capture_output=True,
+        timeout=3,
     )
 
 
@@ -484,7 +497,9 @@ def collect_instances():
     try:
         result = subprocess.run(
             ["ps", "-eo", "pid,ppid,pcpu,rss,etime,args", "--no-headers"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return []
@@ -762,7 +777,9 @@ def main(stdscr):
             prev_size = (max_y, max_x)
             instances = collect_instances()
             groups, group_mode = group_instances(instances)
-            lines, selectable, instance_map = build_lines(groups, max_x, max_y, group_mode)
+            lines, selectable, instance_map = build_lines(
+                groups, max_x, max_y, group_mode
+            )
             total = len(instances)
             last_refresh = now
             if selectable:
@@ -793,9 +810,17 @@ def main(stdscr):
         try:
             stdscr.addnstr(max_y - 2, 0, "─" * max_x, max_x, COLOR_HEADER)
             if status_msg:
-                stdscr.addnstr(max_y - 1, 0, f"  {status_msg}"[:max_x], max_x, COLOR_ACTIVE)
+                stdscr.addnstr(
+                    max_y - 1, 0, f"  {status_msg}"[:max_x], max_x, COLOR_ACTIVE
+                )
             else:
-                stdscr.addnstr(max_y - 1, 0, footer_text[:max_x], max_x, COLOR_DIM | curses.A_NORMAL)
+                stdscr.addnstr(
+                    max_y - 1,
+                    0,
+                    footer_text[:max_x],
+                    max_x,
+                    COLOR_DIM | curses.A_NORMAL,
+                )
         except curses.error:
             pass
 
@@ -824,7 +849,11 @@ def main(stdscr):
                 break
 
             kind, text, attrs = lines[i]
-            is_selected = (i in selectable and selectable.index(i) == selected) if selectable else False
+            is_selected = (
+                (i in selectable and selectable.index(i) == selected)
+                if selectable
+                else False
+            )
 
             try:
                 if kind == "dir":
@@ -847,8 +876,16 @@ def main(stdscr):
 
                         if is_selected:
                             cursor = " >"
-                            stdscr.addnstr(row, 0, cursor, max_x, COLOR_ACTIVE | curses.A_BOLD)
-                            stdscr.addnstr(row, len(cursor), text[len(cursor):max_x], max_x - len(cursor), base_style | curses.A_BOLD)
+                            stdscr.addnstr(
+                                row, 0, cursor, max_x, COLOR_ACTIVE | curses.A_BOLD
+                            )
+                            stdscr.addnstr(
+                                row,
+                                len(cursor),
+                                text[len(cursor) : max_x],
+                                max_x - len(cursor),
+                                base_style | curses.A_BOLD,
+                            )
                         else:
                             stdscr.addnstr(row, 0, text[:max_x], max_x, base_style)
 
@@ -856,7 +893,13 @@ def main(stdscr):
                         if source == "vscode" and not is_selected:
                             vs_pos = text.find("vscode")
                             if 0 <= vs_pos < max_x - 6:
-                                stdscr.addnstr(row, vs_pos, "vscode", min(6, max_x - vs_pos), COLOR_VSCODE)
+                                stdscr.addnstr(
+                                    row,
+                                    vs_pos,
+                                    "vscode",
+                                    min(6, max_x - vs_pos),
+                                    COLOR_VSCODE,
+                                )
 
                         # Highlight ctx usage by threshold
                         if ctx_pct is not None:
@@ -869,10 +912,18 @@ def main(stdscr):
                                     ctx_color = COLOR_IDLE
                                 else:
                                     ctx_color = COLOR_ACTIVE
-                                stdscr.addnstr(row, ctx_pos, ctx_text, min(len(ctx_text), max_x - ctx_pos), ctx_color)
+                                stdscr.addnstr(
+                                    row,
+                                    ctx_pos,
+                                    ctx_text,
+                                    min(len(ctx_text), max_x - ctx_pos),
+                                    ctx_color,
+                                )
 
                 elif kind == "task":
-                    stdscr.addnstr(row, 0, text[:max_x], max_x, COLOR_DIM | curses.A_ITALIC)
+                    stdscr.addnstr(
+                        row, 0, text[:max_x], max_x, COLOR_DIM | curses.A_ITALIC
+                    )
 
             except curses.error:
                 pass
@@ -902,7 +953,9 @@ def main(stdscr):
                 addr = inst.get("window_address")
                 if addr:
                     focus_window(addr)
-                    status_msg = f"Focused PID {inst['pid']} on WS:{inst.get('workspace', '?')}"
+                    status_msg = (
+                        f"Focused PID {inst['pid']} on WS:{inst.get('workspace', '?')}"
+                    )
                     status_time = time.monotonic()
                 else:
                     status_msg = f"No window found for PID {inst['pid']}"
